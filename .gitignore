@@ -1,0 +1,11 @@
+*.iml
+dsdl_wallet_ble/.gradle
+dsdl_wallet_ble/local.properties
+dsdl_wallet_ble/.idea/libraries
+dsdl_wallet_ble/.idea/modules.xml
+dsdl_wallet_ble/.idea/workspace.xml
+dsdl_wallet_ble/.DS_Store
+dsdl_wallet_ble/build
+dsdl_wallet_ble/captures
+dsdl_wallet_ble/.externalNativeBuild
+*tags

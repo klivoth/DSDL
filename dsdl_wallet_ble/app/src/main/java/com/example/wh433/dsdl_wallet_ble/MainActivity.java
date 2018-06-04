@@ -4,6 +4,7 @@ import android.Manifest;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothManager;
+import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanFilter;
 import android.bluetooth.le.ScanResult;
@@ -11,6 +12,9 @@ import android.bluetooth.le.ScanSettings;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.pm.PackageManager;
+import android.location.LocationManager;
+import android.os.Handler;
+import android.provider.Settings;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
@@ -18,6 +22,7 @@ import android.os.Bundle;
 import android.content.Intent;
 import android.util.Log;
 import android.widget.Toast;
+import android.widget.Button;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -28,12 +33,18 @@ import static android.content.ContentValues.TAG;
 
 
 public class MainActivity extends AppCompatActivity {
+    private LocationManager locManager;
     private BluetoothAdapter BTAdapter;
     private HashMap<String, BluetoothDevice> scanResults;
     private ScanCallback scanCallback;
+    private BluetoothLeScanner bleScanner;
+    private Handler scanHandler;
+
     private boolean scanning = false;
     private static final int REQUEST_ENABLE_BT = 1;
-    private static final int REQUEST_ENABLE_LOCATION = 2;
+    private static final int REQUEST_ENABLE_LOCATION_PERMISSION = 2;
+    private static final int REQUEST_ENABLE_LOCATION = 3;
+    private static final long SCAN_PERIOD = 5000;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -43,22 +54,23 @@ public class MainActivity extends AppCompatActivity {
         Intent intent = new Intent(this, LoginActivity.class);
         startActivity(intent);
 
+        locManager = (LocationManager)getSystemService(Context.LOCATION_SERVICE);
         final BluetoothManager bluetoothManager =
                 (BluetoothManager)getSystemService(Context.BLUETOOTH_SERVICE);
         BTAdapter = bluetoothManager.getAdapter();
-        if (BTAdapter == null) { // exit if device does not support bluetooth
+        if (locManager == null || BTAdapter == null) {
             new AlertDialog.Builder(this)
                     .setTitle("Not compatible")
-                    .setMessage("Your phone does not support Bluetooth")
-                    .setPositiveButton("Exit", new DialogInterface.OnClickListener() {
-                        @Override
-                        public void onClick(DialogInterface dialog, int which) {
-                            System.exit(0);
-                        }
-                    })
+                    .setMessage("Cannot access Bluetooth or location services")
+                    .setPositiveButton("Exit", (dialog, which) -> System.exit(0))
                     .setIcon(android.R.drawable.ic_dialog_alert)
                     .show();
         }
+
+        Button startScanBtn = findViewById(R.id.startScanBtn);
+        startScanBtn.setOnClickListener(v -> startScan());
+        Button stopScanBtn = findViewById(R.id.stopScanBtn);
+        stopScanBtn.setOnClickListener(v -> stopScan());
     }
 
     @Override
@@ -69,12 +81,7 @@ public class MainActivity extends AppCompatActivity {
             new AlertDialog.Builder(this)
                     .setTitle("Not compatible")
                     .setMessage("Your phone does not support Bluetooth Low Energy (BLE)")
-                    .setPositiveButton("Exit", new DialogInterface.OnClickListener() {
-                        @Override
-                        public void onClick(DialogInterface dialog, int which) {
-                            System.exit(0);
-                        }
-                    })
+                    .setPositiveButton("Exit", (dialog, which) -> System.exit(0))
                     .setIcon(android.R.drawable.ic_dialog_alert)
                     .show();
         }
@@ -83,17 +90,24 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public void onActivityResult(int requestCode, int resultCode, Intent intent) {
-        if (requestCode == REQUEST_ENABLE_BT) {
+        if (requestCode == REQUEST_ENABLE_BT || requestCode == REQUEST_ENABLE_LOCATION_PERMISSION) {
+            String title = "";
+            String message = "An error occurred while attempting to ";
+            switch (resultCode) {
+                case REQUEST_ENABLE_BT:
+                    title = "Cannot enable Bluetooth";
+                    message += "enable Bluetooth";
+                    break;
+                case REQUEST_ENABLE_LOCATION_PERMISSION:
+                    title = "Cannot obtain location permission";
+                    message += "obtain location permission";
+                    break;
+            }
             if (resultCode == RESULT_CANCELED) {
                 new AlertDialog.Builder(this)
-                        .setTitle("Cannot enable Bluetooth")
-                        .setMessage("An error occurred while attempting to enable Bluetooth")
-                        .setPositiveButton("Exit", new DialogInterface.OnClickListener() {
-                            @Override
-                            public void onClick(DialogInterface dialog, int which) {
-                                System.exit(0);
-                            }
-                        })
+                        .setTitle(title)
+                        .setMessage(message)
+                        .setPositiveButton("Exit", (dialog, which) -> System.exit(0))
                         .setIcon(android.R.drawable.ic_dialog_alert)
                         .show();
             }
@@ -107,10 +121,16 @@ public class MainActivity extends AppCompatActivity {
 
         List<ScanFilter> filterList = new ArrayList<>();
         ScanSettings settings = new ScanSettings.Builder()
-                .setScanMode(ScanSettings.SCAN_MODE_LOW_POWER)
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .build();
         scanResults = new HashMap<>();
         scanCallback = new BtleScanCallback(scanResults);
+
+        bleScanner = BTAdapter.getBluetoothLeScanner();
+        bleScanner.startScan(filterList, settings, scanCallback);
+        scanHandler = new Handler();
+        scanHandler.postDelayed(this::stopScan, SCAN_PERIOD);
+        scanning = true;
     }
 
     private boolean hasPermissions() {
@@ -122,14 +142,21 @@ public class MainActivity extends AppCompatActivity {
             requestLocationPermissions();
             return false;
         }
+        if (!locManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+            requestLocation();
+            return false;
+        }
         return true;
     }
 
     private void requestBluetooth() {
         Intent enableBTIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
         startActivityForResult(enableBTIntent, REQUEST_ENABLE_BT);
-        Toast.makeText(getApplicationContext(), "Bluetooth enabled",
-                Toast.LENGTH_LONG).show();
+    }
+
+    private void requestLocation() {
+        Intent enableLocation = new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS);
+        startActivityForResult(enableLocation, REQUEST_ENABLE_LOCATION);
     }
 
     private boolean hasLocationPermissions() {
@@ -139,7 +166,27 @@ public class MainActivity extends AppCompatActivity {
 
     private void requestLocationPermissions() {
         requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
-                REQUEST_ENABLE_LOCATION);
+                REQUEST_ENABLE_LOCATION_PERMISSION);
+    }
+
+    private void stopScan() {
+        if (scanning && BTAdapter != null && BTAdapter.isEnabled() && bleScanner != null) {
+            bleScanner.stopScan(scanCallback);
+            scanComplete();
+        }
+
+        scanCallback = null;
+        scanning = false;
+        scanHandler = null;
+    }
+
+    private void scanComplete() {
+        if (scanResults.isEmpty()) {
+            return;
+        }
+        for (String deviceAddress : scanResults.keySet()) {
+            Log.d(TAG, "Found device: " + deviceAddress);
+        }
     }
 
     private class BtleScanCallback extends ScanCallback {

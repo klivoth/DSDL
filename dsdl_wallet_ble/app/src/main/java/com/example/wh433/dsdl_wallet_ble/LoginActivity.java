@@ -19,12 +19,7 @@ public class LoginActivity extends AppCompatActivity {
 
         // login button
         Button button = findViewById(R.id.login_button);
-        button.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                login();
-            }
-        });
+        button.setOnClickListener(v -> login());
     }
 
     private void login() {

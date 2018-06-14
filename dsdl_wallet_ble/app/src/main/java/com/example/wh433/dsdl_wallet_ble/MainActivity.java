@@ -21,8 +21,13 @@ import android.os.Bundle;
 
 import android.content.Intent;
 import android.util.Log;
+import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Toast;
 import android.widget.Button;
+import android.widget.ListView;
+import android.widget.AdapterView;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -33,6 +38,10 @@ import static android.content.ContentValues.TAG;
 
 
 public class MainActivity extends AppCompatActivity {
+    private ListView deviceListView;
+    private ArrayList<String> deviceList = new ArrayList<>();
+    private ArrayAdapter listAdapter;
+
     private LocationManager locManager;
     private BluetoothAdapter BTAdapter;
     private HashMap<String, BluetoothDevice> scanResults;
@@ -51,9 +60,11 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        // login screen
         Intent intent = new Intent(this, LoginActivity.class);
         startActivity(intent);
 
+        // BLE
         locManager = (LocationManager)getSystemService(Context.LOCATION_SERVICE);
         final BluetoothManager bluetoothManager =
                 (BluetoothManager)getSystemService(Context.BLUETOOTH_SERVICE);
@@ -71,6 +82,16 @@ public class MainActivity extends AppCompatActivity {
         startScanBtn.setOnClickListener(v -> startScan());
         Button stopScanBtn = findViewById(R.id.stopScanBtn);
         stopScanBtn.setOnClickListener(v -> stopScan());
+
+        // list of scanned devices
+        deviceListView = findViewById(R.id.deviceListView);
+        listAdapter = new ArrayAdapter(this, android.R.layout.simple_list_item_1, deviceList);
+        deviceListView.setAdapter(listAdapter);
+        deviceListView.setOnItemClickListener((parent, view, position, id) ->
+                Toast.makeText(getApplicationContext(),
+                "Clicked device address: " + parent.getItemAtPosition(position).toString(),
+                Toast.LENGTH_LONG)
+                .show());
     }
 
     @Override
@@ -119,6 +140,8 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
+        deviceList.clear();
+
         List<ScanFilter> filterList = new ArrayList<>();
         ScanSettings settings = new ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
@@ -131,6 +154,8 @@ public class MainActivity extends AppCompatActivity {
         scanHandler = new Handler();
         scanHandler.postDelayed(this::stopScan, SCAN_PERIOD);
         scanning = true;
+
+
     }
 
     private boolean hasPermissions() {
@@ -185,8 +210,9 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         for (String deviceAddress : scanResults.keySet()) {
-            Log.d(TAG, "Found device: " + deviceAddress);
+                deviceList.add(deviceAddress);
         }
+        listAdapter.notifyDataSetChanged();
     }
 
     private class BtleScanCallback extends ScanCallback {

@@ -15,7 +15,7 @@ public class LoginActivity extends AppCompatActivity {
 
         // setting hints
         final TextInputLayout privateKeyWrapper = findViewById(R.id.private_key_wrapper);
-        privateKeyWrapper.setHint("Private key");
+        privateKeyWrapper.setHint("Password");
 
         // login button
         Button button = findViewById(R.id.login_button);

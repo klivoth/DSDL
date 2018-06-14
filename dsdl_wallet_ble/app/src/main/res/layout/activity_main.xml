@@ -15,17 +15,23 @@
         android:paddingRight="24dp">
 
         <Button
+            android:id="@+id/startScanBtn"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:id="@+id/startScanBtn"
             android:text="Start scan"/>
 
         <Button
+            android:id="@+id/stopScanBtn"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:id="@+id/stopScanBtn"
             android:text="Stop scan"/>
 
+        <ListView
+            android:id="@+id/deviceListView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+        </ListView>
     </LinearLayout>
 
 </android.support.constraint.ConstraintLayout>

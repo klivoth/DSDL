@@ -4,6 +4,7 @@ import android.Manifest;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothManager;
+import android.bluetooth.BluetoothSocket;
 import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanFilter;
@@ -27,33 +28,56 @@ import android.widget.ArrayAdapter;
 import android.widget.Toast;
 import android.widget.Button;
 import android.widget.ListView;
-import android.widget.AdapterView;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import static android.content.ContentValues.TAG;
 
-
+/**
+ * Main activity of our wallet app.
+ * Contains buttons to start/stop scanning nearby devices via BLE,
+ * and display list of discovered devices.
+ * Click on the entry of the list for connecting to the device.
+ *
+ * The scanning part is modified from: https://github.com/bignerdranch/android-bluetooth-testbed
+ * The connection part is modified from: https://github.com/googlesamples/android-BluetoothChat
+ */
 public class MainActivity extends AppCompatActivity {
-    private ListView deviceListView;
-    private ArrayList<String> deviceList = new ArrayList<>();
-    private ArrayAdapter listAdapter;
 
+    // Members and constants for BLE scanning
     private LocationManager locManager;
     private BluetoothAdapter BTAdapter;
     private HashMap<String, BluetoothDevice> scanResults;
     private ScanCallback scanCallback;
     private BluetoothLeScanner bleScanner;
     private Handler scanHandler;
-
     private boolean scanning = false;
     private static final int REQUEST_ENABLE_BT = 1;
     private static final int REQUEST_ENABLE_LOCATION_PERMISSION = 2;
     private static final int REQUEST_ENABLE_LOCATION = 3;
     private static final long SCAN_PERIOD = 5000;
+
+    // Members for displaying device list
+    private ListView deviceListView;
+    private ArrayList<String> deviceList = new ArrayList<>();
+    private ArrayAdapter listAdapter;
+
+    // Members and constants for connection
+    private ConnectThread connectThread;
+    private ConnectedThread connectedThread;
+    private int connectionState = STATE_NONE;
+    private static final UUID UUID_INSECURE =
+            UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
+    public static final int STATE_NONE = 0;
+    public static final int STATE_CONNECTING = 1;
+    public static final int STATE_CONNECTED = 2;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -80,18 +104,13 @@ public class MainActivity extends AppCompatActivity {
 
         Button startScanBtn = findViewById(R.id.startScanBtn);
         startScanBtn.setOnClickListener(v -> startScan());
-        Button stopScanBtn = findViewById(R.id.stopScanBtn);
-        stopScanBtn.setOnClickListener(v -> stopScan());
 
         // list of scanned devices
         deviceListView = findViewById(R.id.deviceListView);
         listAdapter = new ArrayAdapter(this, android.R.layout.simple_list_item_1, deviceList);
         deviceListView.setAdapter(listAdapter);
         deviceListView.setOnItemClickListener((parent, view, position, id) ->
-                Toast.makeText(getApplicationContext(),
-                "Clicked device address: " + parent.getItemAtPosition(position).toString(),
-                Toast.LENGTH_LONG)
-                .show());
+                connectDevice(scanResults.get(parent.getItemAtPosition(position).toString())));
     }
 
     @Override
@@ -141,7 +160,6 @@ public class MainActivity extends AppCompatActivity {
         }
 
         deviceList.clear();
-
         List<ScanFilter> filterList = new ArrayList<>();
         ScanSettings settings = new ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
@@ -154,8 +172,6 @@ public class MainActivity extends AppCompatActivity {
         scanHandler = new Handler();
         scanHandler.postDelayed(this::stopScan, SCAN_PERIOD);
         scanning = true;
-
-
     }
 
     private boolean hasPermissions() {
@@ -209,10 +225,57 @@ public class MainActivity extends AppCompatActivity {
         if (scanResults.isEmpty()) {
             return;
         }
-        for (String deviceAddress : scanResults.keySet()) {
-                deviceList.add(deviceAddress);
-        }
+        deviceList.addAll(scanResults.keySet());
         listAdapter.notifyDataSetChanged();
+    }
+
+    public synchronized void connectDevice(BluetoothDevice device) {
+        if (connectionState == STATE_CONNECTING && connectThread != null) {
+            connectThread.cancel();
+            connectThread = null;
+        }
+        if (connectionState == STATE_CONNECTED && connectedThread != null) {
+            connectedThread.cancel();
+            connectedThread = null;
+        }
+        connectThread = new ConnectThread(device);
+        connectThread.start();
+        Toast.makeText(getApplicationContext(), "Connecting to: " + device.getName(),
+                Toast.LENGTH_LONG).show();
+    }
+
+    public synchronized void connected(BluetoothSocket socket) {
+        if (connectThread != null) {
+            connectThread.cancel();
+            connectThread = null;
+        }
+        if (connectedThread != null) {
+            connectedThread.cancel();
+            connectedThread = null;
+        }
+        connectedThread = new ConnectedThread(socket);
+        connectedThread.start();
+        // TODO: switch activity
+    }
+
+    public void write(byte[] out) {
+        ConnectedThread thread;
+        synchronized (this) {
+            if (connectionState != STATE_CONNECTED)
+                return;
+            thread = connectedThread;
+        }
+        thread.write(out);
+    }
+
+    private void connectionFailed() {
+        connectionState = STATE_NONE;
+        // TODO: notify, handle and retry
+    }
+
+    private void connectionLost() {
+        connectionState = STATE_NONE;
+        // TODO: notify, handle and retry
     }
 
     private class BtleScanCallback extends ScanCallback {
@@ -244,6 +307,109 @@ public class MainActivity extends AppCompatActivity {
             BluetoothDevice device = result.getDevice();
             String deviceAddress = device.getAddress();
             scanResults.put(deviceAddress, device);
+        }
+    }
+
+    private class ConnectThread extends Thread {
+        private BluetoothSocket socket;
+
+        private ConnectThread(BluetoothDevice device) {
+            try {
+                socket = device.createInsecureRfcommSocketToServiceRecord(UUID_INSECURE);
+            } catch (IOException e) {
+                Log.e(TAG, "Socket create failed", e);
+                return;
+            }
+            connectionState = STATE_CONNECTING;
+        }
+
+        public void run() {
+            // stop scanning to avoid slowing connection
+            stopScan();
+
+            try {
+                socket.connect();
+            } catch (IOException e) {
+                try {
+                    socket.close();
+                } catch (IOException closeExc) {
+                    Log.e(TAG, "Cannot close socket", closeExc);
+                }
+                connectionFailed();
+                return;
+            }
+
+            // reset connectThread and start connectedThread
+            synchronized (MainActivity.this) {
+                connectThread = null;
+            }
+            connected(socket);
+        }
+
+        public void cancel() {
+            try {
+                socket.close();
+            } catch (IOException e) {
+                Log.e(TAG, "Failed to close connectThread", e);
+            }
+        }
+    }
+
+    private class ConnectedThread extends Thread {
+        private BluetoothSocket socket;
+        private InputStream input;
+        private OutputStream output;
+
+        public ConnectedThread(BluetoothSocket socket) {
+            this.socket = socket;
+            try {
+                input = socket.getInputStream();
+                output = socket.getOutputStream();
+            } catch (IOException e) {
+                Log.e(TAG, "Cannot get input/output streams", e);
+                return;
+            }
+            connectionState = STATE_CONNECTED;
+        }
+
+        public void run() {
+            byte[] buffer = new byte[1024];
+            int bytes;
+            String message = "This is a message";
+            buffer = message.getBytes();
+            try {
+                output.write(buffer);
+            } catch (IOException e) {
+                Log.e(TAG, "Cannot write message");
+            }
+
+            while (connectionState == STATE_CONNECTED) {
+                try {
+                    bytes = input.read(buffer);
+                    // TODO: handle income message
+                } catch (IOException e) {
+                    Log.e(TAG, "Disconnected", e);
+                    connectionLost();
+                    break;
+                }
+            }
+        }
+
+        public void write(byte[] buffer) {
+            try {
+                output.write(buffer);
+                // TODO: notify
+            } catch (IOException e) {
+                Log.e(TAG, "Error when writing", e);
+            }
+        }
+
+        public void cancel() {
+            try {
+                socket.close();
+            } catch (IOException e) {
+                Log.e(TAG, "Failed to close socket", e);
+            }
         }
     }
 }

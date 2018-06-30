@@ -15,6 +15,7 @@ import android.content.DialogInterface;
 import android.content.pm.PackageManager;
 import android.location.LocationManager;
 import android.os.Handler;
+import android.preference.PreferenceManager;
 import android.provider.Settings;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
@@ -22,12 +23,16 @@ import android.os.Bundle;
 
 import android.content.Intent;
 import android.util.Log;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Toast;
 import android.widget.Button;
 import android.widget.ListView;
+import android.support.v7.widget.Toolbar;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -71,7 +76,7 @@ public class MainActivity extends AppCompatActivity {
 
     // Members and constants for connection
     private ConnectThread connectThread;
-    private ConnectedThread connectedThread;
+    private static ConnectedThread connectedThread;
     private int connectionState = STATE_NONE;
     private static final UUID UUID_INSECURE =
             UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
@@ -84,9 +89,15 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        // toolbar
+        setSupportActionBar(findViewById(R.id.toolbar_main));
+        getSupportActionBar().setTitle("Connect to wallet");
+
         // login screen
-        Intent intent = new Intent(this, LoginActivity.class);
-        startActivity(intent);
+        if (PasswordActivity.checkPasswordExist(getApplicationContext())) {
+            Intent intent = new Intent(this, LoginActivity.class);
+            startActivity(intent);
+        }
 
         // BLE
         locManager = (LocationManager)getSystemService(Context.LOCATION_SERVICE);
@@ -114,8 +125,48 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.toolbar_menu, menu);
+        if (PasswordActivity.checkPasswordExist(getApplicationContext())) {
+            MenuItem item = menu.findItem(R.id.set_password);
+            item.setTitle("Change password");
+        }
+        else {
+            MenuItem item = menu.findItem(R.id.remove_password);
+            item.setVisible(false);
+        }
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        Intent intent = new Intent(this, PasswordActivity.class);
+        Bundle b = new Bundle();
+        int mode = PasswordActivity.SET_PASSWORD;
+        switch (item.getItemId()) {
+            case R.id.set_password:
+                if (PasswordActivity.checkPasswordExist(getApplicationContext()))
+                   mode = PasswordActivity.CHANGE_PASSWORD;
+                break;
+            case R.id.remove_password:
+                if (!PasswordActivity.checkPasswordExist(getApplicationContext()))
+                    return true;
+                mode = PasswordActivity.REMOVE_PASSWORD;
+                break;
+            default:
+                return super.onOptionsItemSelected(item);
+        }
+        b.putInt("key", mode);
+        intent.putExtras(b);
+        startActivity(intent);
+        return true;
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
+
+        invalidateOptionsMenu();
 
         if (!getPackageManager().hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)) {
             new AlertDialog.Builder(this)
@@ -255,7 +306,13 @@ public class MainActivity extends AppCompatActivity {
         }
         connectedThread = new ConnectedThread(socket);
         connectedThread.start();
-        // TODO: switch activity
+
+        Intent intent = new Intent(this, MessagingActivity.class);
+        startActivity(intent);
+    }
+
+    public static ConnectedThread getConnectedThread() {
+        return connectedThread;
     }
 
     public void write(byte[] out) {

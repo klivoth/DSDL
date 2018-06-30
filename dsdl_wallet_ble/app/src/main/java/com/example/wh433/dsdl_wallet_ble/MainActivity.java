@@ -11,11 +11,10 @@ import android.bluetooth.le.ScanFilter;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.pm.PackageManager;
 import android.location.LocationManager;
+import android.os.AsyncTask;
 import android.os.Handler;
-import android.preference.PreferenceManager;
 import android.provider.Settings;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
@@ -24,20 +23,19 @@ import android.os.Bundle;
 import android.content.Intent;
 import android.util.Log;
 import android.view.Menu;
-import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
-import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
+import android.widget.EditText;
 import android.widget.Toast;
 import android.widget.Button;
 import android.widget.ListView;
-import android.support.v7.widget.Toolbar;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -74,7 +72,7 @@ public class MainActivity extends AppCompatActivity {
     private ArrayList<String> deviceList = new ArrayList<>();
     private ArrayAdapter listAdapter;
 
-    // Members and constants for connection
+    // connection
     private ConnectThread connectThread;
     private static ConnectedThread connectedThread;
     private int connectionState = STATE_NONE;
@@ -84,9 +82,18 @@ public class MainActivity extends AppCompatActivity {
     public static final int STATE_CONNECTING = 1;
     public static final int STATE_CONNECTED = 2;
 
+    // Messaging
+    private ListView messageListView;
+    private ArrayList<String> messageList = new ArrayList<>();
+    private ArrayAdapter messageListAdapter;
+    private EditText outputMessage;
+    private View mainView, messageView;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        mainView = getLayoutInflater().inflate(R.layout.activity_main, null);
+        messageView = getLayoutInflater().inflate(R.layout.activity_messaging, null);
         setContentView(R.layout.activity_main);
 
         // toolbar
@@ -121,7 +128,31 @@ public class MainActivity extends AppCompatActivity {
         listAdapter = new ArrayAdapter(this, android.R.layout.simple_list_item_1, deviceList);
         deviceListView.setAdapter(listAdapter);
         deviceListView.setOnItemClickListener((parent, view, position, id) ->
-                connectDevice(scanResults.get(parent.getItemAtPosition(position).toString())));
+                connectDevice(parent.getItemAtPosition(position).toString()));
+    }
+
+    private void switchMode(int mode) {
+        if (mode == 0) {
+            setContentView(mainView);
+            setSupportActionBar(findViewById(R.id.toolbar_main));
+        }
+        else {
+            setContentView(messageView);
+            setSupportActionBar(findViewById(R.id.toolbar_message));
+            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+            getSupportActionBar().setTitle("Send Message");
+            messageListAdapter = new ArrayAdapter(this, R.layout.message,
+                    messageList);
+            messageListView = findViewById(R.id.message_list);
+            messageListView.setAdapter(messageListAdapter);
+            outputMessage = findViewById(R.id.output_message);
+            Button sendButton = findViewById(R.id.send_button);
+            sendButton.setOnClickListener(v -> {
+                byte[] buffer = Arrays.copyOf(outputMessage.getText().toString().getBytes(),
+                        outputMessage.length());
+                write(buffer);
+            });
+        }
     }
 
     @Override
@@ -153,6 +184,8 @@ public class MainActivity extends AppCompatActivity {
                     return true;
                 mode = PasswordActivity.REMOVE_PASSWORD;
                 break;
+            case android.R.id.home:
+                stopConnection("");
             default:
                 return super.onOptionsItemSelected(item);
         }
@@ -280,7 +313,10 @@ public class MainActivity extends AppCompatActivity {
         listAdapter.notifyDataSetChanged();
     }
 
-    public synchronized void connectDevice(BluetoothDevice device) {
+    public synchronized void connectDevice(String device) {
+        Toast.makeText(getApplicationContext(), "Connecting to: " + device,
+                Toast.LENGTH_LONG).show();
+        stopScan();
         if (connectionState == STATE_CONNECTING && connectThread != null) {
             connectThread.cancel();
             connectThread = null;
@@ -289,10 +325,9 @@ public class MainActivity extends AppCompatActivity {
             connectedThread.cancel();
             connectedThread = null;
         }
-        connectThread = new ConnectThread(device);
+        connectThread = new ConnectThread(scanResults.get(device));
         connectThread.start();
-        Toast.makeText(getApplicationContext(), "Connecting to: " + device.getName(),
-                Toast.LENGTH_LONG).show();
+        switchMode(1);
     }
 
     public synchronized void connected(BluetoothSocket socket) {
@@ -306,13 +341,6 @@ public class MainActivity extends AppCompatActivity {
         }
         connectedThread = new ConnectedThread(socket);
         connectedThread.start();
-
-        Intent intent = new Intent(this, MessagingActivity.class);
-        startActivity(intent);
-    }
-
-    public static ConnectedThread getConnectedThread() {
-        return connectedThread;
     }
 
     public void write(byte[] out) {
@@ -322,17 +350,30 @@ public class MainActivity extends AppCompatActivity {
                 return;
             thread = connectedThread;
         }
-        thread.write(out);
+        if (out.length > 0)
+            thread.write(out);
+    }
+
+    private void stopConnection(String errorMessage) {
+        connectionState = STATE_NONE;
+        if (connectThread != null) {
+            connectThread.cancel();
+            connectThread = null;
+        }
+        if (connectedThread != null) {
+            connectedThread.cancel();
+            connectedThread = null;
+        }
+        Log.e(TAG, errorMessage);
+        new AsyncSwitchView().execute(0);
     }
 
     private void connectionFailed() {
-        connectionState = STATE_NONE;
-        // TODO: notify, handle and retry
+        stopConnection("Connection failed, return to main screen");
     }
 
     private void connectionLost() {
-        connectionState = STATE_NONE;
-        // TODO: notify, handle and retry
+        stopConnection("Connection lost, return to main screen");
     }
 
     private class BtleScanCallback extends ScanCallback {
@@ -359,7 +400,6 @@ public class MainActivity extends AppCompatActivity {
             Log.e(TAG, "BLE Scan failed with code " + errCode);
         }
 
-
         private void addScanResult(ScanResult result) {
             BluetoothDevice device = result.getDevice();
             String deviceAddress = device.getAddress();
@@ -381,9 +421,6 @@ public class MainActivity extends AppCompatActivity {
         }
 
         public void run() {
-            // stop scanning to avoid slowing connection
-            stopScan();
-
             try {
                 socket.connect();
             } catch (IOException e) {
@@ -397,13 +434,13 @@ public class MainActivity extends AppCompatActivity {
             }
 
             // reset connectThread and start connectedThread
-            synchronized (MainActivity.this) {
+            synchronized (this) {
                 connectThread = null;
             }
             connected(socket);
         }
 
-        public void cancel() {
+        private void cancel() {
             try {
                 socket.close();
             } catch (IOException e) {
@@ -417,7 +454,7 @@ public class MainActivity extends AppCompatActivity {
         private InputStream input;
         private OutputStream output;
 
-        public ConnectedThread(BluetoothSocket socket) {
+        private ConnectedThread(BluetoothSocket socket) {
             this.socket = socket;
             try {
                 input = socket.getInputStream();
@@ -430,20 +467,11 @@ public class MainActivity extends AppCompatActivity {
         }
 
         public void run() {
-            byte[] buffer = new byte[1024];
-            int bytes;
-            String message = "This is a message";
-            buffer = message.getBytes();
-            try {
-                output.write(buffer);
-            } catch (IOException e) {
-                Log.e(TAG, "Cannot write message");
-            }
-
+            byte[] buffer = new byte[2048];
             while (connectionState == STATE_CONNECTED) {
                 try {
-                    bytes = input.read(buffer);
-                    // TODO: handle income message
+                    input.read(buffer);
+                    new AsyncMessageLoader().execute(new String(buffer, "ASCII"));
                 } catch (IOException e) {
                     Log.e(TAG, "Disconnected", e);
                     connectionLost();
@@ -452,21 +480,47 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        public void write(byte[] buffer) {
+        private void write(byte[] buffer) {
             try {
                 output.write(buffer);
-                // TODO: notify
             } catch (IOException e) {
                 Log.e(TAG, "Error when writing", e);
             }
         }
 
-        public void cancel() {
+        private void cancel() {
             try {
                 socket.close();
             } catch (IOException e) {
                 Log.e(TAG, "Failed to close socket", e);
             }
+        }
+    }
+
+    private class AsyncMessageLoader extends AsyncTask<String, Void, String> {
+        @Override
+        protected void onPostExecute(String message) {
+            super.onPostExecute(message);
+            messageListAdapter.add(message);
+            messageListAdapter.notifyDataSetChanged();
+        }
+
+        @Override
+        protected String doInBackground(String... message) {
+            return message[0];
+        }
+    }
+
+    private class AsyncSwitchView extends AsyncTask<Integer, Void, Integer> {
+        @Override
+        protected void onPostExecute(Integer mode) {
+            super.onPostExecute(mode);
+            switchMode(mode);
+        }
+
+        @Override
+        protected Integer doInBackground(Integer... mode) {
+            return mode[0];
         }
     }
 }

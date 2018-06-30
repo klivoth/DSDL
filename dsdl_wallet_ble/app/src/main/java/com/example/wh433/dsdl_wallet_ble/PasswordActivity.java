@@ -2,7 +2,6 @@ package com.example.wh433.dsdl_wallet_ble;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.preference.Preference;
 import android.preference.PreferenceManager;
 import android.support.design.widget.TextInputLayout;
 import android.support.v7.app.ActionBar;

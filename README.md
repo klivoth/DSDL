@@ -10,7 +10,7 @@ TODO:
 2.  Boot and connect via ssh (Pi)
      - **Completed**
 3.  Be able to connect and send/receive messages (App & Pi)
-     - _In progress..._
+     - **Completed**
 4.  Be able to encrypt transactions (Pi)
      - _In progress..._
 5.  Support multisig (App & Pi)

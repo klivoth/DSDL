@@ -11,15 +11,10 @@ TODO:
      - **Completed**
 3.  Be able to connect and send/receive messages (App & Pi)
      - **Completed**
-4.  Be able to encrypt transactions (Pi)
-     - _In progress..._
-5.  Support multisig (App & Pi)
-6.  Support PIN code / password to protect app (App)
+4.  Sign transactions (Pi)
      - **Completed**
-7.  Support mnemonic code / recovery seed (App & Pi)
-8.  Display balance and most used addresses (App)
-9.  Support QR code: import paper wallet or transactions (App)
-10. Monitor exchange rate (App)
+5.  Support PIN code / password to protect app (App)
+     - **Completed**
 
 References:
 -----------

@@ -65,7 +65,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_ENABLE_BT = 1;
     private static final int REQUEST_ENABLE_LOCATION_PERMISSION = 2;
     private static final int REQUEST_ENABLE_LOCATION = 3;
-    private static final long SCAN_PERIOD = 5000;
+    private static final long SCAN_PERIOD = 3000;
 
     // Members for displaying device list
     private ListView deviceListView;
@@ -135,6 +135,9 @@ public class MainActivity extends AppCompatActivity {
         if (mode == 0) {
             setContentView(mainView);
             setSupportActionBar(findViewById(R.id.toolbar_main));
+            getSupportActionBar().setTitle("Connect to wallet");
+            Button startScanBtn = findViewById(R.id.startScanBtn);
+            startScanBtn.setOnClickListener(v -> startScan());
         }
         else {
             setContentView(messageView);
